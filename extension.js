@@ -383,6 +383,7 @@ function activate(context) {
               const p = selected[i].problem;
               progress.report({ message: `[${i + 1}/${total}] ${p.meta.displayId} ${p.meta.title}`, increment: 100 / total });
 
+              let doc;
               try {
                 // 检查样本是否存在，缺失则自动下载
                 const missing = await checkMissingSamples(p.dir);
@@ -391,7 +392,7 @@ function activate(context) {
                   await downloadSamples(p, (msg) => progress.report({ message: `[${i + 1}/${total}] ${p.meta.displayId} ${msg}` }));
                 }
 
-                const doc = await vscode.workspace.openTextDocument(p.sourceFile);
+                doc = await vscode.workspace.openTextDocument(p.sourceFile);
                 await vscode.window.showTextDocument(doc, { preview: false });
                 await new Promise((r) => setTimeout(r, 300));
 
@@ -403,13 +404,15 @@ function activate(context) {
                 // 检查是否全部通过
                 const passed = await checkProblemLocalPassed(p.meta.problemId);
                 if (passed) {
+                  // 切回源文件再关 tab（runLocalTests 后焦点可能在 OUTPUT）
+                  await vscode.window.showTextDocument(doc);
                   await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
                   results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: true, result: "全部通过" });
                 } else {
                   results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: true, result: "有失败（保留窗口）" });
                 }
               } catch (err) {
-                try { await vscode.commands.executeCommand("workbench.action.closeActiveEditor"); } catch {}
+                try { if (doc) await vscode.window.showTextDocument(doc); await vscode.commands.executeCommand("workbench.action.closeActiveEditor"); } catch {}
                 results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: false, error: String(err.message || err) });
               }
               await new Promise((r) => setTimeout(r, 500));
