@@ -25,7 +25,7 @@ cp -r xmuoj-batch ~/.vscode/extensions/local.xmuoj-batch-1.0.0/
 ## 依赖
 
 - VS Code ≥ 1.88
-- [XMUOJ 插件](https://marketplace.visualstudio.com/items?itemName=xmuoj.xmuoj-vscode)
+- [XMUOJ 插件](https://github.com/AndyLishengrui/xmuoj)
 - Python 3（用于检查 AC 状态）
 - Git（用于同步功能）
 
