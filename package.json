@@ -2,7 +2,7 @@
   "name": "xmuoj-batch",
   "displayName": "XMUOJ Batch",
   "description": "XMUOJ 配套插件：批量提交评测 + Git 同步",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "publisher": "woo3an",
   "engines": { "vscode": "^1.88.0" },
   "main": "./extension.js",
