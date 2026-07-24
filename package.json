@@ -1,0 +1,58 @@
+{
+  "name": "xmuoj-batch",
+  "displayName": "XMUOJ Batch",
+  "description": "XMUOJ 配套插件：批量提交评测 + Git 同步",
+  "version": "1.0.0",
+  "publisher": "woo3an",
+  "engines": { "vscode": "^1.88.0" },
+  "main": "./extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Woo3aN/xmuoj-batch"
+  },
+  "activationEvents": [
+    "onCommand:xmuoj-batch.submitAll",
+    "onCommand:xmuoj-batch.login",
+    "onCommand:xmuoj-batch.gitPull",
+    "onCommand:xmuoj-batch.gitPush"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "xmuoj-batch.submitAll",
+        "title": "XMUOJ: 批量提交评测",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "xmuoj-batch.login",
+        "title": "XMUOJ Batch: 登录"
+      },
+      {
+        "command": "xmuoj-batch.gitPull",
+        "title": "XMUOJ: 同步拉取 (git pull)",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "xmuoj-batch.gitPush",
+        "title": "XMUOJ: 提交并推送 (git push)",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "xmuoj-batch.gitSetup",
+        "title": "XMUOJ: 初始化 Git 仓库",
+        "icon": "$(repo-create)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "xmuoj-batch.submitAll", "when": "true" },
+        { "command": "xmuoj-batch.login", "when": "true" },
+        { "command": "xmuoj-batch.gitPull", "when": "true" },
+        { "command": "xmuoj-batch.gitPush", "when": "true" }
+      ],
+      "editor/title": [
+        { "command": "xmuoj-batch.submitAll", "group": "navigation", "when": "resourcePath =~ /contest-/" }
+      ]
+    }
+  }
+}
