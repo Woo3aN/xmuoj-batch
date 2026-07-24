@@ -14,7 +14,8 @@
     "onCommand:xmuoj-batch.submitAll",
     "onCommand:xmuoj-batch.gitPull",
     "onCommand:xmuoj-batch.gitPush",
-    "onCommand:xmuoj-batch.gitSetup"
+    "onCommand:xmuoj-batch.gitSetup",
+    "onCommand:xmuoj-batch.runLocalTests"
   ],
   "contributes": {
     "commands": [
@@ -37,6 +38,16 @@
         "command": "xmuoj-batch.gitSetup",
         "title": "XMUOJ: 初始化 Git 仓库",
         "icon": "$(repo-create)"
+      },
+      {
+        "command": "xmuoj-batch.downloadSamples",
+        "title": "XMUOJ: 批量下载样本数据",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "xmuoj-batch.runLocalTests",
+        "title": "XMUOJ: 批量本地测试",
+        "icon": "$(beaker)"
       }
     ],
     "menus": {
@@ -44,7 +55,8 @@
         { "command": "xmuoj-batch.submitAll", "when": "true" },
         { "command": "xmuoj-batch.gitPull", "when": "true" },
         { "command": "xmuoj-batch.gitPush", "when": "true" },
-        { "command": "xmuoj-batch.gitSetup", "when": "true" }
+        { "command": "xmuoj-batch.gitSetup", "when": "true" },
+        { "command": "xmuoj-batch.runLocalTests", "when": "true" }
       ],
       "editor/title": [
         { "command": "xmuoj-batch.submitAll", "group": "navigation", "when": "resourcePath =~ /contest-/" }

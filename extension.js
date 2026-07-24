@@ -57,6 +57,76 @@ async function scanProblems() {
   return problems;
 }
 
+// ---- 检查 samples 是否存在 ----
+async function checkMissingSamples(problemDir) {
+  try {
+    const samplesDir = path.join(problemDir, "samples");
+    const files = await fs.readdir(samplesDir);
+    const hasIn = files.some((f) => f.endsWith(".in"));
+    const hasOut = files.some((f) => f.endsWith(".out"));
+    return !hasIn || !hasOut;
+  } catch {
+    return true;
+  }
+}
+
+// ---- 从 XMUOJ 下载缺失的样本数据 ----
+async function downloadSamples(problem, onMsg) {
+  // 先尝试 xmuoj.openProblem（需要已打开实验）
+  const prob = { id: problem.meta.problemId, display_id: problem.meta.displayId, title: problem.meta.title };
+  try {
+    onMsg("下载样本...");
+    await vscode.commands.executeCommand("xmuoj.openProblem", prob);
+    // 检查是否真的写入了
+    const missing = await checkMissingSamples(problem.dir);
+    if (!missing) return true;
+  } catch (err) {
+    // openProblem 失败了，用 Python 直接调 API
+  }
+
+  // 回退方案：用 Python 从 SQLite 读 cookie 调 API
+  onMsg("回退API下载...");
+  return new Promise((resolve) => {
+    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+    const pid = problem.meta.problemId;
+    const cid = problem.meta.contestId || 362;
+    const sdir = path.join(problem.dir, "samples").replace(/\\/g, "/");
+    const script = [
+      "import sqlite3,json,urllib.request,os",
+      `db=sqlite3.connect(r"${dbPath}")`,
+      'row=db.execute("SELECT value FROM ItemTable WHERE key=\'xmuoj.xmuoj-vscode\'").fetchone()',
+      "data=json.loads(row[0])",
+      'cookies=data.get("xmuoj.sessionCookies","")',
+      "if not cookies:",
+      '    cookies=data.get("xmuoj.token","")',
+      "db.close()",
+      `url="http://xmuoj.com/api/plugin/problem_workspace?problem_id=${pid}&contest_id=${cid}"`,
+      'req=urllib.request.Request(url,headers={"Cookie":cookies,"User-Agent":"Mozilla/5.0","Authorization":"Token "+cookies if cookies and not "=" in cookies else ""})',
+      "try:",
+      "    resp=urllib.request.urlopen(req,timeout=15)",
+      "    body=json.loads(resp.read())",
+      '    samples=body.get("data",{}).get("samples",[])',
+      '    if not samples: samples=body.get("samples",[])',
+      `    os.makedirs(r"${sdir}",exist_ok=True)`,
+      "    for i,s in enumerate(samples):",
+      "        ni=i+1",
+      '        inp=s.get("input","") or ""',
+      '        out=s.get("output","") or ""',
+      `        open(r"${sdir}/"+str(ni)+".in","w",encoding="utf-8").write(inp)`,
+      `        open(r"${sdir}/"+str(ni)+".out","w",encoding="utf-8").write(out)`,
+      "    print(f'OK:{len(samples)}')",
+      "except Exception as e:",
+      "    print(f'ERR:{e}')",
+    ].join("\n");
+    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+    const timer = setTimeout(() => { proc.kill(); resolve(false); }, 15000);
+    let out = "";
+    proc.stdout.on("data", (d) => out += d.toString());
+    proc.on("close", () => { clearTimeout(timer); resolve(out.trim().startsWith("OK:")); });
+    proc.on("error", () => { clearTimeout(timer); resolve(false); });
+  });
+}
+
 // ---- 检查题目 AC 状态 ----
 function checkProblemAC(problemId) {
   return new Promise((resolve) => {
@@ -67,6 +137,20 @@ function checkProblemAC(problemId) {
     let out = "";
     proc.stdout.on("data", (d) => out += d.toString());
     proc.on("close", () => { clearTimeout(timer); resolve(out.trim() === "AC"); });
+    proc.on("error", () => { clearTimeout(timer); resolve(false); });
+  });
+}
+
+// ---- 检查本地测试结果 ----
+function checkProblemLocalPassed(problemId) {
+  return new Promise((resolve) => {
+    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+    const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  lp=v.get("lastLocalPassed",0) or 0\n  lt=v.get("lastLocalTotal",0) or 0\n  print("PASS" if lp>=lt>0 else "FAIL")\n  break\nelse:\n print("FAIL")\ndb.close()`;
+    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+    const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
+    let out = "";
+    proc.stdout.on("data", (d) => out += d.toString());
+    proc.on("close", () => { clearTimeout(timer); resolve(out.trim() === "PASS"); });
     proc.on("error", () => { clearTimeout(timer); resolve(false); });
   });
 }
@@ -211,6 +295,141 @@ function activate(context) {
         );
       } catch (err) {
         vscode.window.showErrorMessage(`批量提交出错: ${err.message}`);
+      }
+    })
+  );
+
+  // === 批量下载样本 ===
+  context.subscriptions.push(
+    vscode.commands.registerCommand("xmuoj-batch.downloadSamples", async () => {
+      const allProblems = await scanProblems();
+      if (allProblems.length === 0) {
+        vscode.window.showWarningMessage("没有找到题目");
+        return;
+      }
+      const missingList = [];
+      for (const p of allProblems) {
+        if (await checkMissingSamples(p.dir)) missingList.push(p);
+      }
+      if (missingList.length === 0) {
+        vscode.window.showInformationMessage("所有题目样本数据已完整");
+        return;
+      }
+
+      const items = missingList.map((p) => ({
+        label: `$(cloud-download) ${p.meta.displayId || "?"}`,
+        description: p.meta.title || "",
+        picked: true,
+        problem: p,
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        title: `下载样本 — ${missingList.length} 道缺失`,
+        canPickMany: true,
+        placeHolder: "选择要下载样本的题目（默认全选）",
+      });
+      if (!selected || selected.length === 0) return;
+
+      let ok = 0;
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `下载样本 (0/${selected.length})`, cancellable: true },
+        async (progress, token) => {
+          for (let i = 0; i < selected.length; i++) {
+            if (token.isCancellationRequested) break;
+            progress.report({ message: `[${i + 1}/${selected.length}] ${selected[i].problem.meta.displayId}`, increment: 100 / selected.length });
+            const result = await downloadSamples(selected[i].problem, () => {});
+            if (result) ok++;
+          }
+        }
+      );
+      vscode.window.showInformationMessage(`✅ 样本下载完成: ${ok}/${selected.length}`);
+    })
+  );
+
+  // === 批量本地测试 ===
+  context.subscriptions.push(
+    vscode.commands.registerCommand("xmuoj-batch.runLocalTests", async () => {
+      try {
+        const allProblems = await scanProblems();
+        const readyProblems = allProblems.filter((p) => p.hasCode);
+        if (readyProblems.length === 0) {
+          vscode.window.showWarningMessage("没有找到含代码的题目");
+          return;
+        }
+
+        const items = readyProblems.map((p) => ({
+          label: `$(beaker) ${p.meta.displayId || "?"}`,
+          description: p.meta.title || "",
+          detail: `$(file-code) ${path.basename(p.sourceFile)} · ${path.basename(path.dirname(p.dir))}`,
+          picked: true,
+          problem: p,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          title: `XMUOJ 批量本地测试 — ${readyProblems.length} 道`,
+          canPickMany: true,
+          placeHolder: "选择要测试的题目（默认全选）",
+        });
+        if (!selected || selected.length === 0) return;
+
+        const total = selected.length;
+        const results = [];
+
+        await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: `批量本地测试 (0/${total})`, cancellable: true },
+          async (progress, token) => {
+            for (let i = 0; i < total; i++) {
+              if (token.isCancellationRequested) break;
+              const p = selected[i].problem;
+              progress.report({ message: `[${i + 1}/${total}] ${p.meta.displayId} ${p.meta.title}`, increment: 100 / total });
+
+              try {
+                // 检查样本是否存在，缺失则自动下载
+                const missing = await checkMissingSamples(p.dir);
+                if (missing) {
+                  progress.report({ message: `[${i + 1}/${total}] ${p.meta.displayId} 下载样本...` });
+                  await downloadSamples(p, (msg) => progress.report({ message: `[${i + 1}/${total}] ${p.meta.displayId} ${msg}` }));
+                }
+
+                const doc = await vscode.workspace.openTextDocument(p.sourceFile);
+                await vscode.window.showTextDocument(doc, { preview: false });
+                await new Promise((r) => setTimeout(r, 300));
+
+                await vscode.commands.executeCommand("xmuoj.runLocalTests");
+
+                // 检查是否全部通过
+                const passed = await checkProblemLocalPassed(p.meta.problemId);
+                if (passed) {
+                  await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                  results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: true, result: "全部通过" });
+                } else {
+                  results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: true, result: "有失败（保留窗口）" });
+                }
+              } catch (err) {
+                try { await vscode.commands.executeCommand("workbench.action.closeActiveEditor"); } catch {}
+                results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: false, error: String(err.message || err) });
+              }
+              await new Promise((r) => setTimeout(r, 500));
+            }
+          }
+        );
+
+        // 输出结果
+        const lines = [`批量本地测试 — ${new Date().toLocaleString("zh-CN")}`, "=".repeat(55)];
+        for (const r of results) {
+          const icon = r.result === "全部通过" ? "✅" : r.ok ? "⚠️" : "❌";
+          lines.push(`${icon} [${r.displayId}] ${r.title} — ${r.result || r.error}`);
+        }
+        lines.push("=".repeat(55));
+        const passCount = results.filter((r) => r.result === "全部通过").length;
+        lines.push(`总计: ${results.length} 题 | 全部通过: ${passCount} | 有失败: ${results.length - passCount}`);
+
+        const output = vscode.window.createOutputChannel("XMUOJ Batch");
+        output.clear();
+        output.appendLine(lines.join("\n"));
+        output.show();
+      } catch (err) {
+        vscode.window.showErrorMessage(`批量本地测试出错: ${err.message}`);
       }
     })
   );

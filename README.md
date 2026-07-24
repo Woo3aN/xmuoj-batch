@@ -1,30 +1,33 @@
 # XMUOJ Batch
 
-XMUOJ 配套 VS Code 插件，提供三个功能：
+XMUOJ 配套 VS Code 插件。
 
-- 🚀 **批量提交评测** — 扫描所有题目，一键全部提交到 XMUOJ
-- 📥 **git pull** — 拉取另一台电脑的代码
-- 📤 **git push** — 提交并推送代码到 GitHub
+## 功能
+
+| 命令 | 说明 |
+|------|------|
+| `XMUOJ: 批量提交评测` | 模拟手动提交流程，AC 自动关 tab，WA 保留窗口 |
+| `XMUOJ: 批量本地测试` | 批量跑 samples 测试，缺样本自动尝试下载 |
+| `XMUOJ: 批量下载样本数据` | 从 XMUOJ 下载缺失的测试样本 |
+| `XMUOJ: 同步拉取 (git pull)` | 从 GitHub 拉取代码 |
+| `XMUOJ: 提交并推送 (git push)` | 提交改动并推送 |
+| `XMUOJ: 初始化 Git 仓库` | 新手一键配 Git |
 
 ## 安装
 
 ```bash
 git clone https://github.com/Woo3aN/xmuoj-batch.git
 # 复制到 VS Code 扩展目录
-cp -r xmuoj-batch ~/.vscode/extensions/local.xmuoj-batch-1.0.0
+cp -r xmuoj-batch ~/.vscode/extensions/local.xmuoj-batch-1.0.0/
+# 重启 VS Code
 ```
 
-或者直接下载，解压到 `C:\Users\<用户名>\.vscode\extensions\local.xmuoj-batch-1.0.0\`
+## 依赖
 
-## 使用
-
-`Ctrl+Shift+P` 输入：
-
-| 命令 | 说明 |
-|------|------|
-| `XMUOJ: 批量提交评测` | 扫描所有已开题且有代码的题目，多选后批量提交 |
-| `XMUOJ: 同步拉取 (git pull)` | 从 GitHub 拉取最新代码 |
-| `XMUOJ: 提交并推送 (git push)` | 提交改动并推送到 GitHub |
+- VS Code ≥ 1.88
+- [XMUOJ 插件](https://marketplace.visualstudio.com/items?itemName=xmuoj.xmuoj-vscode)
+- Python 3（用于检查 AC 状态）
+- Git（用于同步功能）
 
 ## Git 同步设置
 
@@ -35,9 +38,3 @@ cd "你的XMUOJ工作区目录"
 git init
 git remote add origin <你的GitHub仓库地址>
 ```
-
-## 依赖
-
-- VS Code ≥ 1.88
-- [XMUOJ 插件](https://marketplace.visualstudio.com/items?itemName=xmuoj.xmuoj-vscode)
-- Python 3（用于更新题目 AC 状态）
