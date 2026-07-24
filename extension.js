@@ -127,6 +127,50 @@ async function downloadSamples(problem, onMsg) {
   });
 }
 
+// ---- 统计题目提交次数（用于检测是否真的提交成功） ----
+function submissionCount(problemId) {
+  return new Promise((resolve) => {
+    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+    const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nhist=data.get("xmuoj.submissionHistory",[])\nprint(sum(1 for h in hist if h.get("problem_id")==${problemId}))\ndb.close()`;
+    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+    const timer = setTimeout(() => { proc.kill(); resolve(0); }, 3000);
+    let out = "";
+    proc.stdout.on("data", (d) => out += d.toString());
+    proc.on("close", () => { clearTimeout(timer); resolve(parseInt(out.trim()) || 0); });
+    proc.on("error", () => { clearTimeout(timer); resolve(0); });
+  });
+}
+
+// ---- 读取最近一次提交的结果标签 ----
+function getLastSubmissionLabel(problemId) {
+  return new Promise((resolve) => {
+    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+    const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  print(v.get("lastSubmissionLabel") or "")\n  break\nelse:\n print("")\ndb.close()`;
+    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+    const timer = setTimeout(() => { proc.kill(); resolve(""); }, 3000);
+    let out = "";
+    proc.stdout.on("data", (d) => out += d.toString());
+    proc.on("close", () => { clearTimeout(timer); resolve(out.trim()); });
+    proc.on("error", () => { clearTimeout(timer); resolve(""); });
+  });
+}
+
+// ---- 关闭指定文档的 tab（精确匹配，不影响其他 tab） ----
+async function closeTab(doc) {
+  if (!doc) return;
+  const target = path.normalize(doc.uri.fsPath);
+  for (const group of vscode.window.tabGroups.all) {
+    const tab = group.tabs.find(t => {
+      const fsPath = path.normalize(t.input?.uri?.fsPath || "");
+      return fsPath === target;
+    });
+    if (tab) {
+      await vscode.window.tabGroups.close(tab);
+      return;
+    }
+  }
+}
+
 // ---- 检查题目 AC 状态（最多重试 3 次，每次等 500ms） ----
 async function checkProblemAC(problemId) {
   for (let retry = 0; retry < 3; retry++) {
@@ -167,7 +211,7 @@ async function checkProblemLocalPassed(problemId) {
 
 // ---- 激活扩展 ----
 function activate(context) {
-  // 批量提交（模拟手动：打开文件 → 调用 XMUOJ 命令提交）
+  // 批量提交
   context.subscriptions.push(
     vscode.commands.registerCommand("xmuoj-batch.submitAll", async () => {
       try {
@@ -234,16 +278,50 @@ function activate(context) {
                 increment: 100 / total,
               });
 
+
+              // 本机 XMUOJ 树已 AC 则跳过（换电脑不跳，DB 路径不同）
+              if (await checkProblemAC(p.meta.problemId)) {
+                results.push({ displayId, title: p.meta.title, ok: true, result: "Accepted（已 AC，跳过）" });
+                continue;
+              }
+
               let doc;
+              let submitted = false;
               try {
                 // 打开源文件（聚焦编辑器，模拟手动打开）
                 doc = await vscode.workspace.openTextDocument(p.sourceFile);
                 await vscode.window.showTextDocument(doc, { preview: false });
-                // 等编辑器就绪
                 await new Promise((r) => setTimeout(r, 300));
 
-                // 调用 XMUOJ 插件的提交流程（模拟手动）
-                await vscode.commands.executeCommand("xmuoj.submitCurrentFile");
+                for (let attempt = 0; attempt < 5; attempt++) {
+                  // 记录提交前的计数
+                  const countBefore = await submissionCount(p.meta.problemId);
+                  try {
+                    await vscode.commands.executeCommand("xmuoj.submitCurrentFile");
+                  } catch (_) { }
+
+                  // 等判题落库，最多等 3 秒
+                  for (let w = 0; w < 3; w++) {
+                    await new Promise((r) => setTimeout(r, 1000));
+                    const countAfter = await submissionCount(p.meta.problemId);
+                    if (countAfter > countBefore) {
+                      submitted = true;
+                      break;
+                    }
+                  }
+                  if (submitted) break;
+
+                  // 限流，等 12 秒重试
+                  if (attempt < 4) {
+                    progress.report({ message: `[${i + 1}/${total}] ⏳ 限流，12s 后重试 (${attempt + 1}/5)` });
+                    await new Promise((r) => setTimeout(r, 12000));
+                  }
+                }
+
+                if (!submitted) {
+                  results.push({ displayId, title: p.meta.title, ok: false, error: "重试5次仍失败", keepWindow: true });
+                  continue;
+                }
 
                 // 等 XMUOJ 写入结果到数据库
                 await new Promise((r) => setTimeout(r, 500));
@@ -251,38 +329,16 @@ function activate(context) {
                 // 查数据库判断是否 AC
                 const isAC = await checkProblemAC(p.meta.problemId);
                 if (isAC) {
-                  // AC → 切回源文件再关 tab
-                  await vscode.window.showTextDocument(doc);
-                  await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                  // AC → 只关 main.cpp，结果面板留给下题复用
+                  await closeTab(doc);
                   results.push({ displayId, title: p.meta.title, ok: true, result: "Accepted" });
                 } else {
-                  // 非 AC → 保留 tab 供查看
+                  // 非 AC → main.cpp 和结果面板都保留
                   results.push({ displayId, title: p.meta.title, ok: true, result: "非AC（保留窗口）" });
                 }
               } catch (err) {
-                // 出错关掉 tab
-                try { if (doc) { await vscode.window.showTextDocument(doc); await vscode.commands.executeCommand("workbench.action.closeActiveEditor"); } } catch {}
-                const msg = String(err.message || err);
-                // 如果是限流错误，等待后重试
-                const waitMatch = msg.match(/wait\s+(\d+)\s*seconds?/i);
-                if (waitMatch) {
-                  const waitSec = parseInt(waitMatch[1], 10) + 1;
-                  progress.report({ message: `[${i + 1}/${total}] ⏳ 限流等待 ${waitSec - 1}s...` });
-                  await new Promise((r) => setTimeout(r, waitSec * 1000));
-                  // 重试一次
-                  try {
-                    await vscode.commands.executeCommand("xmuoj.submitCurrentFile");
-                    results.push({ displayId, title: p.meta.title, ok: true, result: "已提交(重试)" });
-                  } catch (err2) {
-                    results.push({ displayId, title: p.meta.title, ok: false, error: String(err2.message || err2) });
-                  }
-                } else {
-                  results.push({ displayId, title: p.meta.title, ok: false, error: msg });
-                }
+                results.push({ displayId, title: p.meta.title, ok: false, error: String(err.message || err), keepWindow: true });
               }
-
-              // 短暂间隔避免太快
-              await new Promise((r) => setTimeout(r, 500));
             }
           }
         );
@@ -419,15 +475,13 @@ function activate(context) {
                 // 检查是否全部通过
                 const passed = await checkProblemLocalPassed(p.meta.problemId);
                 if (passed) {
-                  // 切回源文件再关 tab（runLocalTests 后焦点可能在 OUTPUT）
-                  await vscode.window.showTextDocument(doc);
-                  await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                  await closeTab(doc);
                   results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: true, result: "全部通过" });
                 } else {
                   results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: true, result: "有失败（保留窗口）" });
                 }
               } catch (err) {
-                try { if (doc) await vscode.window.showTextDocument(doc); await vscode.commands.executeCommand("workbench.action.closeActiveEditor"); } catch {}
+                try { await closeTab(doc); } catch {}
                 results.push({ displayId: p.meta.displayId, title: p.meta.title, ok: false, error: String(err.message || err) });
               }
               await new Promise((r) => setTimeout(r, 500));
