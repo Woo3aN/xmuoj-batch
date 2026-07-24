@@ -2,10 +2,38 @@ const vscode = require("vscode");
 const path = require("path");
 const os = require("os");
 const fs = require("fs/promises");
+const fsSync = require("fs");
 const child_process = require("child_process");
 
 // 数据库路径（自动适配当前用户，不再硬编码 Administrator）
 const DB_PATH = path.join(os.homedir(), "AppData/Roaming/Code/User/globalStorage/state.vscdb");
+
+// ---- 自动探测 Python 路径 ----
+let _pythonPath = null;
+function getPythonPath() {
+  if (_pythonPath) return _pythonPath;
+  const candidates = [
+    path.join(os.homedir(), "AppData/Local/Programs/Python/Python313/python.exe"),
+    path.join(os.homedir(), "AppData/Local/Programs/Python/Python312/python.exe"),
+    path.join(os.homedir(), "AppData/Local/Programs/Python/Python311/python.exe"),
+    path.join(os.homedir(), "AppData/Local/Programs/Python/Python310/python.exe"),
+    "C:/Python313/python.exe",
+    "C:/Python312/python.exe",
+    "C:/Python311/python.exe",
+    "C:/Python310/python.exe",
+    "python",   // 最后 fallback 到 PATH
+  ];
+  for (const c of candidates) {
+    if (c === "python") { _pythonPath = c; break; }
+    if (fsSync.existsSync(c)) { _pythonPath = c; break; }
+  }
+  return _pythonPath;
+}
+
+// ---- 执行 Python 脚本 ----
+function spawnPython(script, timeout) {
+  return child_process.spawn(getPythonPath(), ["-c", script], { windowsHide: true, timeout });
+}
 
 // ---- 题目扫描 ----
 async function scanProblems() {
@@ -122,7 +150,7 @@ async function downloadSamples(problem, onMsg) {
       "except Exception as e:",
       "    print(f'ERR:{e}')",
     ].join("\n");
-    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+    const proc = spawnPython(script);
     const timer = setTimeout(() => { proc.kill(); resolve(false); }, 15000);
     let out = "";
     proc.stdout.on("data", (d) => out += d.toString());
@@ -136,7 +164,7 @@ function submissionCount(problemId) {
   return new Promise((resolve) => {
     const dbPath = DB_PATH;
     const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nhist=data.get("xmuoj.submissionHistory",[])\nprint(sum(1 for h in hist if h.get("problem_id")==${problemId}))\ndb.close()`;
-    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+    const proc = spawnPython(script);
     const timer = setTimeout(() => { proc.kill(); resolve(0); }, 3000);
     let out = "";
     proc.stdout.on("data", (d) => out += d.toString());
@@ -151,7 +179,7 @@ function getLastSubmissionLabel(problemId) {
     const dbPath = DB_PATH;
     const scope = (vscode.workspace.getConfiguration("xmuoj").get("localWorkspaceRoot") || "").replace(/\\/g, "\\\\");
     const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  print(v.get("lastSubmissionLabel") or "")\n  break\nelse:\n print("")\ndb.close()`;
-    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+    const proc = spawnPython(script);
     const timer = setTimeout(() => { proc.kill(); resolve(""); }, 3000);
     let out = "";
     proc.stdout.on("data", (d) => out += d.toString());
@@ -183,7 +211,7 @@ async function checkProblemAC(problemId) {
     const result = await new Promise((resolve) => {
       const dbPath = DB_PATH;
       const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  print("AC" if v.get("accepted") else "NOT")\n  break\nelse:\n print("NOT")\ndb.close()`;
-      const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+      const proc = spawnPython(script);
       const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
       let out = "";
       proc.stdout.on("data", (d) => out += d.toString());
@@ -203,7 +231,7 @@ async function checkProblemLocalPassed(problemId) {
     const result = await new Promise((resolve) => {
       const dbPath = DB_PATH;
       const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  lp=v.get("lastLocalPassed",0) or 0\n  lt=v.get("lastLocalTotal",0) or 0\n  print("PASS" if lp>=lt>0 else "FAIL")\n  break\nelse:\n print("FAIL")\ndb.close()`;
-      const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+      const proc = spawnPython(script);
       const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
       let out = "";
       proc.stdout.on("data", (d) => out += d.toString());
