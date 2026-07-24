@@ -1,7 +1,11 @@
 const vscode = require("vscode");
 const path = require("path");
+const os = require("os");
 const fs = require("fs/promises");
 const child_process = require("child_process");
+
+// 数据库路径（自动适配当前用户，不再硬编码 Administrator）
+const DB_PATH = path.join(os.homedir(), "AppData/Roaming/Code/User/globalStorage/state.vscdb");
 
 // ---- 题目扫描 ----
 async function scanProblems() {
@@ -87,7 +91,7 @@ async function downloadSamples(problem, onMsg) {
   // 回退方案：用 Python 从 SQLite 读 cookie 调 API
   onMsg("回退API下载...");
   return new Promise((resolve) => {
-    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+    const dbPath = DB_PATH;
     const pid = problem.meta.problemId;
     const cid = problem.meta.contestId || 362;
     const sdir = path.join(problem.dir, "samples").replace(/\\/g, "/");
@@ -130,7 +134,7 @@ async function downloadSamples(problem, onMsg) {
 // ---- 统计题目提交次数（用于检测是否真的提交成功） ----
 function submissionCount(problemId) {
   return new Promise((resolve) => {
-    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+    const dbPath = DB_PATH;
     const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nhist=data.get("xmuoj.submissionHistory",[])\nprint(sum(1 for h in hist if h.get("problem_id")==${problemId}))\ndb.close()`;
     const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
     const timer = setTimeout(() => { proc.kill(); resolve(0); }, 3000);
@@ -144,7 +148,7 @@ function submissionCount(problemId) {
 // ---- 读取最近一次提交的结果标签 ----
 function getLastSubmissionLabel(problemId) {
   return new Promise((resolve) => {
-    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+    const dbPath = DB_PATH;
     const scope = (vscode.workspace.getConfiguration("xmuoj").get("localWorkspaceRoot") || "").replace(/\\/g, "\\\\");
     const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  print(v.get("lastSubmissionLabel") or "")\n  break\nelse:\n print("")\ndb.close()`;
     const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
@@ -177,7 +181,7 @@ async function checkProblemAC(problemId) {
   const scope = (vscode.workspace.getConfiguration("xmuoj").get("localWorkspaceRoot") || "").replace(/\\/g, "\\\\");
   for (let retry = 0; retry < 3; retry++) {
     const result = await new Promise((resolve) => {
-      const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+      const dbPath = DB_PATH;
       const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  print("AC" if v.get("accepted") else "NOT")\n  break\nelse:\n print("NOT")\ndb.close()`;
       const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
       const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
@@ -197,7 +201,7 @@ async function checkProblemLocalPassed(problemId) {
   const scope = (vscode.workspace.getConfiguration("xmuoj").get("localWorkspaceRoot") || "").replace(/\\/g, "\\\\");
   for (let retry = 0; retry < 3; retry++) {
     const result = await new Promise((resolve) => {
-      const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+      const dbPath = DB_PATH;
       const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  lp=v.get("lastLocalPassed",0) or 0\n  lt=v.get("lastLocalTotal",0) or 0\n  print("PASS" if lp>=lt>0 else "FAIL")\n  break\nelse:\n print("FAIL")\ndb.close()`;
       const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
       const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
