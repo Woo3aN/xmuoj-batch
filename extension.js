@@ -397,6 +397,9 @@ function activate(context) {
 
                 await vscode.commands.executeCommand("xmuoj.runLocalTests");
 
+                // 等 XMUOJ 写入结果到数据库
+                await new Promise((r) => setTimeout(r, 500));
+
                 // 检查是否全部通过
                 const passed = await checkProblemLocalPassed(p.meta.problemId);
                 if (passed) {
