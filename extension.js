@@ -145,7 +145,8 @@ function submissionCount(problemId) {
 function getLastSubmissionLabel(problemId) {
   return new Promise((resolve) => {
     const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
-    const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  print(v.get("lastSubmissionLabel") or "")\n  break\nelse:\n print("")\ndb.close()`;
+    const scope = (vscode.workspace.getConfiguration("xmuoj").get("localWorkspaceRoot") || "").replace(/\\/g, "\\\\");
+    const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  print(v.get("lastSubmissionLabel") or "")\n  break\nelse:\n print("")\ndb.close()`;
     const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
     const timer = setTimeout(() => { proc.kill(); resolve(""); }, 3000);
     let out = "";
@@ -173,10 +174,11 @@ async function closeTab(doc) {
 
 // ---- 检查题目 AC 状态（最多重试 3 次，每次等 500ms） ----
 async function checkProblemAC(problemId) {
+  const scope = (vscode.workspace.getConfiguration("xmuoj").get("localWorkspaceRoot") || "").replace(/\\/g, "\\\\");
   for (let retry = 0; retry < 3; retry++) {
     const result = await new Promise((resolve) => {
       const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
-      const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  print("AC" if v.get("accepted") else "NOT")\n  break\nelse:\n print("NOT")\ndb.close()`;
+      const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  print("AC" if v.get("accepted") else "NOT")\n  break\nelse:\n print("NOT")\ndb.close()`;
       const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
       const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
       let out = "";
@@ -192,10 +194,11 @@ async function checkProblemAC(problemId) {
 
 // ---- 检查本地测试结果（最多重试 3 次） ----
 async function checkProblemLocalPassed(problemId) {
+  const scope = (vscode.workspace.getConfiguration("xmuoj").get("localWorkspaceRoot") || "").replace(/\\/g, "\\\\");
   for (let retry = 0; retry < 3; retry++) {
     const result = await new Promise((resolve) => {
       const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
-      const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  lp=v.get("lastLocalPassed",0) or 0\n  lt=v.get("lastLocalTotal",0) or 0\n  print("PASS" if lp>=lt>0 else "FAIL")\n  break\nelse:\n print("FAIL")\ndb.close()`;
+      const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "${scope}" in k:\n  lp=v.get("lastLocalPassed",0) or 0\n  lt=v.get("lastLocalTotal",0) or 0\n  print("PASS" if lp>=lt>0 else "FAIL")\n  break\nelse:\n print("FAIL")\ndb.close()`;
       const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
       const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
       let out = "";
