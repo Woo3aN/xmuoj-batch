@@ -12,9 +12,9 @@
   },
   "activationEvents": [
     "onCommand:xmuoj-batch.submitAll",
-    "onCommand:xmuoj-batch.login",
     "onCommand:xmuoj-batch.gitPull",
-    "onCommand:xmuoj-batch.gitPush"
+    "onCommand:xmuoj-batch.gitPush",
+    "onCommand:xmuoj-batch.gitSetup"
   ],
   "contributes": {
     "commands": [
@@ -22,10 +22,6 @@
         "command": "xmuoj-batch.submitAll",
         "title": "XMUOJ: 批量提交评测",
         "icon": "$(cloud-upload)"
-      },
-      {
-        "command": "xmuoj-batch.login",
-        "title": "XMUOJ Batch: 登录"
       },
       {
         "command": "xmuoj-batch.gitPull",
@@ -46,9 +42,9 @@
     "menus": {
       "commandPalette": [
         { "command": "xmuoj-batch.submitAll", "when": "true" },
-        { "command": "xmuoj-batch.login", "when": "true" },
         { "command": "xmuoj-batch.gitPull", "when": "true" },
-        { "command": "xmuoj-batch.gitPush", "when": "true" }
+        { "command": "xmuoj-batch.gitPush", "when": "true" },
+        { "command": "xmuoj-batch.gitSetup", "when": "true" }
       ],
       "editor/title": [
         { "command": "xmuoj-batch.submitAll", "group": "navigation", "when": "resourcePath =~ /contest-/" }
