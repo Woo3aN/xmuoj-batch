@@ -127,32 +127,42 @@ async function downloadSamples(problem, onMsg) {
   });
 }
 
-// ---- 检查题目 AC 状态 ----
-function checkProblemAC(problemId) {
-  return new Promise((resolve) => {
-    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
-    const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  print("AC" if v.get("accepted") else "NOT")\n  break\nelse:\n print("NOT")\ndb.close()`;
-    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
-    const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
-    let out = "";
-    proc.stdout.on("data", (d) => out += d.toString());
-    proc.on("close", () => { clearTimeout(timer); resolve(out.trim() === "AC"); });
-    proc.on("error", () => { clearTimeout(timer); resolve(false); });
-  });
+// ---- 检查题目 AC 状态（最多重试 3 次，每次等 500ms） ----
+async function checkProblemAC(problemId) {
+  for (let retry = 0; retry < 3; retry++) {
+    const result = await new Promise((resolve) => {
+      const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+      const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  print("AC" if v.get("accepted") else "NOT")\n  break\nelse:\n print("NOT")\ndb.close()`;
+      const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+      const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
+      let out = "";
+      proc.stdout.on("data", (d) => out += d.toString());
+      proc.on("close", () => { clearTimeout(timer); resolve(out.trim() === "AC"); });
+      proc.on("error", () => { clearTimeout(timer); resolve(false); });
+    });
+    if (result) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
 }
 
-// ---- 检查本地测试结果 ----
-function checkProblemLocalPassed(problemId) {
-  return new Promise((resolve) => {
-    const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
-    const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  lp=v.get("lastLocalPassed",0) or 0\n  lt=v.get("lastLocalTotal",0) or 0\n  print("PASS" if lp>=lt>0 else "FAIL")\n  break\nelse:\n print("FAIL")\ndb.close()`;
-    const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
-    const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
-    let out = "";
-    proc.stdout.on("data", (d) => out += d.toString());
-    proc.on("close", () => { clearTimeout(timer); resolve(out.trim() === "PASS"); });
-    proc.on("error", () => { clearTimeout(timer); resolve(false); });
-  });
+// ---- 检查本地测试结果（最多重试 3 次） ----
+async function checkProblemLocalPassed(problemId) {
+  for (let retry = 0; retry < 3; retry++) {
+    const result = await new Promise((resolve) => {
+      const dbPath = "C:/Users/Administrator/AppData/Roaming/Code/User/globalStorage/state.vscdb";
+      const script = `import sqlite3,json\ndb=sqlite3.connect(r"${dbPath}")\nrow=db.execute("SELECT value FROM ItemTable WHERE key='xmuoj.xmuoj-vscode'").fetchone()\ndata=json.loads(row[0])\nfor k,v in data.get("xmuoj.problemProgress",{}).items():\n if str(${problemId}) in k and "vscode c++" in k:\n  lp=v.get("lastLocalPassed",0) or 0\n  lt=v.get("lastLocalTotal",0) or 0\n  print("PASS" if lp>=lt>0 else "FAIL")\n  break\nelse:\n print("FAIL")\ndb.close()`;
+      const proc = child_process.spawn("python", ["-c", script], { windowsHide: true });
+      const timer = setTimeout(() => { proc.kill(); resolve(false); }, 3000);
+      let out = "";
+      proc.stdout.on("data", (d) => out += d.toString());
+      proc.on("close", () => { clearTimeout(timer); resolve(out.trim() === "PASS"); });
+      proc.on("error", () => { clearTimeout(timer); resolve(false); });
+    });
+    if (result) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
 }
 
 // ---- 激活扩展 ----
@@ -224,9 +234,10 @@ function activate(context) {
                 increment: 100 / total,
               });
 
+              let doc;
               try {
                 // 打开源文件（聚焦编辑器，模拟手动打开）
-                const doc = await vscode.workspace.openTextDocument(p.sourceFile);
+                doc = await vscode.workspace.openTextDocument(p.sourceFile);
                 await vscode.window.showTextDocument(doc, { preview: false });
                 // 等编辑器就绪
                 await new Promise((r) => setTimeout(r, 300));
@@ -234,10 +245,14 @@ function activate(context) {
                 // 调用 XMUOJ 插件的提交流程（模拟手动）
                 await vscode.commands.executeCommand("xmuoj.submitCurrentFile");
 
+                // 等 XMUOJ 写入结果到数据库
+                await new Promise((r) => setTimeout(r, 500));
+
                 // 查数据库判断是否 AC
                 const isAC = await checkProblemAC(p.meta.problemId);
                 if (isAC) {
-                  // AC → 关 tab
+                  // AC → 切回源文件再关 tab
+                  await vscode.window.showTextDocument(doc);
                   await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
                   results.push({ displayId, title: p.meta.title, ok: true, result: "Accepted" });
                 } else {
@@ -246,7 +261,7 @@ function activate(context) {
                 }
               } catch (err) {
                 // 出错关掉 tab
-                try { await vscode.commands.executeCommand("workbench.action.closeActiveEditor"); } catch {}
+                try { if (doc) { await vscode.window.showTextDocument(doc); await vscode.commands.executeCommand("workbench.action.closeActiveEditor"); } } catch {}
                 const msg = String(err.message || err);
                 // 如果是限流错误，等待后重试
                 const waitMatch = msg.match(/wait\s+(\d+)\s*seconds?/i);
